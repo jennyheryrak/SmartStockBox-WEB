@@ -13,8 +13,7 @@ export default function Zone() {
   const [zoneData, setZoneData] = useState({});
   const [produits, setProduits] = useState({});
   const [zoneFilter, setZoneFilter] = useState("");
-
-  const UNITES_PAR_LOT = 20; // nombre d’unités par lot
+  const [unitParLot, setUnitParLot] = useState(0); // dynamique selon produit
 
   // Charger les zones
   useEffect(() => {
@@ -37,11 +36,26 @@ export default function Zone() {
   const zoneRefs = Object.entries(zoneData);
   const produitsRefs = Object.entries(produits);
 
+  // Quand on change le produit, récupérer son qte_par_lot
+  useEffect(() => {
+    if (designation) {
+      const prod = Object.values(produits).find(
+        (p) => p.designation === designation
+      );
+      if (prod && prod.qte_par_lot) {
+        setUnitParLot(parseInt(prod.qte_par_lot));
+      }
+    }
+  }, [designation, produits]);
+
   // Ajouter une zone
   const handleAddProduit = async (e) => {
     e.preventDefault();
     try {
-      const totalUnites = parseInt(lots) * UNITES_PAR_LOT + parseInt(unites);
+      const totalUnites =
+        parseInt(lots || 0) * parseInt(unitParLot || 0) +
+        parseInt(unites || 0);
+
       const uid_client = "1FEvCO3AMPUXBEHXkW5O73pkw9h2";
 
       await set(push(ref(database, "zone/")), {
@@ -51,6 +65,8 @@ export default function Zone() {
         ref_client: uid_client,
         createdAt: new Date().toISOString(),
         modifiedAt: new Date().toISOString(),
+        unite_par_lot: unitParLot, // on enregistre la valeur utilisée
+        status_stock: totalUnites > 0 ? 1 : 0,
       });
 
       alert("✅ Enregistrement effectué !");
@@ -78,8 +94,11 @@ export default function Zone() {
     const currentZone = zoneData[id];
     if (!currentZone) return;
 
+    // On prend le unitParLot propre à cette zone (enregistré)
+    const unitesParLotZone = currentZone.unite_par_lot || 20;
+
     const totalUnites =
-      parseInt(lotsValue || 0) * UNITES_PAR_LOT + parseInt(unitesValue || 0);
+      parseInt(lotsValue || 0) * unitesParLotZone + parseInt(unitesValue || 0);
 
     await set(ref(database, "zone/" + id), {
       ...currentZone,
@@ -89,12 +108,10 @@ export default function Zone() {
     });
   };
 
-  const handleModal = () => setShowModal(true);
-
   // Convertit les unités totales vers lots + unités pour affichage
-  const convertirLotsEtUnites = (total) => {
-    const lots = Math.floor(total / UNITES_PAR_LOT);
-    const unites = total % UNITES_PAR_LOT;
+  const convertirLotsEtUnites = (total, unite_par_lot = 20) => {
+    const lots = Math.floor(total / unite_par_lot);
+    const unites = total % unite_par_lot;
     return { lots, unites };
   };
 
@@ -106,7 +123,7 @@ export default function Zone() {
           Liste des zones et stocks
         </h2>
         <button
-          onClick={handleModal}
+          onClick={() => setShowModal(true)}
           className="bg-blue-600 text-white font-medium px-5 py-2 rounded-lg shadow hover:bg-blue-700 transition-all"
         >
           + Ajouter
@@ -145,7 +162,8 @@ export default function Zone() {
             .filter(([_, z]) => !zoneFilter || z.zone === zoneFilter)
             .map(([uid, user]) => {
               const { lots, unites } = convertirLotsEtUnites(
-                user.qte_total_unites || 0
+                user.qte_total_unites || 0,
+                user.unite_par_lot || 20
               );
 
               return (
@@ -159,11 +177,7 @@ export default function Zone() {
                         min={0}
                         value={lots}
                         onChange={(e) =>
-                          handleUpdateQuantity(
-                            uid,
-                            e.target.value,
-                            unites
-                          )
+                          handleUpdateQuantity(uid, e.target.value, unites)
                         }
                         className="w-20 border border-gray-300 rounded px-2 py-1 text-center"
                       />
@@ -173,11 +187,7 @@ export default function Zone() {
                         min={0}
                         value={unites}
                         onChange={(e) =>
-                          handleUpdateQuantity(
-                            uid,
-                            lots,
-                            e.target.value
-                          )
+                          handleUpdateQuantity(uid, lots, e.target.value)
                         }
                         className="w-20 border border-gray-300 rounded px-2 py-1 text-center"
                       />
@@ -219,7 +229,7 @@ export default function Zone() {
                 <label className="block text-sm text-gray-700 mb-1">Zone</label>
                 <input
                   type="text"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-400 focus:outline-none"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   value={zone}
                   onChange={(e) => setZone(e.target.value)}
                   required
@@ -243,6 +253,12 @@ export default function Zone() {
                   ))}
                 </select>
               </div>
+
+              {unitParLot > 0 && (
+                <p className="text-sm text-gray-600">
+                  Ce produit contient <b>{unitParLot}</b> unités par lot.
+                </p>
+              )}
 
               <div className="flex gap-4">
                 <div className="flex-1">
@@ -275,13 +291,13 @@ export default function Zone() {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="bg-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300 transition"
+                  className="bg-gray-200 px-4 py-2 rounded-lg hover:bg-gray-300"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 shadow transition"
+                  className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700"
                 >
                   Enregistrer
                 </button>
@@ -290,22 +306,6 @@ export default function Zone() {
           </div>
         </div>
       )}
-
-      <style jsx>{`
-        @keyframes fadeInUp {
-          0% {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          100% {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fadeInUp {
-          animation: fadeInUp 0.3s ease-out;
-        }
-      `}</style>
     </div>
   );
 }
